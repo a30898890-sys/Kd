@@ -133,7 +133,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun appendLog(s: String) {
-        if (log.length > 20000) log.text = log.text.takeLast(10000)
+        if (log.length() > 20000) log.text = log.text.takeLast(10000)
         log.append(s + "\n\n")
         scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
     }
