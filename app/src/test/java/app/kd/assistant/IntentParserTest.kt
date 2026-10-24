@@ -1,6 +1,7 @@
 package app.kd.assistant
 
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -50,12 +51,42 @@ class IntentParserTest {
         assertEquals(KdIntent.Sleep, IntentParser.parse("কেডি, এখন ঘুমাও"))
     }
 
-    @Test fun unsupportedFeaturesAreNotFaked() {
-        assertTrue(IntentParser.parse("কেডি, আগের পেজে ফিরে যাও") is KdIntent.Unsupported)
-        assertTrue(IntentParser.parse("কেডি, আমার মাকে ফোন দাও") is KdIntent.Unsupported)
-        assertTrue(IntentParser.parse("কেডি, ফ্ল্যাশলাইট চালু করো") is KdIntent.Unsupported)
-        assertTrue(IntentParser.parse("আগামীকাল সকাল আটটায় আমাকে মনে করিয়ে দিও") is KdIntent.Unsupported)
-        assertTrue(IntentParser.parse("অ্যাড্রেস বারে google.com লেখো") is KdIntent.Unsupported)
+    @Test fun offWordsStopListening() {
+        assertEquals(KdIntent.Sleep, IntentParser.parse("কেডি অফ"))
+        assertEquals(KdIntent.Sleep, IntentParser.parse("অফ হও"))
+        assertEquals(KdIntent.Sleep, IntentParser.parse("off"))
+    }
+
+    @Test fun torchVolumeMedia() {
+        assertEquals(KdIntent.Torch(true), IntentParser.parse("কেডি, ফ্ল্যাশলাইট চালু করো"))
+        assertEquals(KdIntent.Torch(false), IntentParser.parse("কেডি, ফ্ল্যাশলাইট অফ করো"))
+        assertEquals(KdIntent.Volume(1), IntentParser.parse("ভলিউম বাড়াও"))
+        assertEquals(KdIntent.Volume(-1), IntentParser.parse("আওয়াজ কমাও"))
+        assertEquals(KdIntent.Media("pause"), IntentParser.parse("গান থামাও"))
+        assertEquals(KdIntent.Media("prev"), IntentParser.parse("আগের গান চালাও"))
+    }
+
+    @Test fun accessibilityCommands() {
+        assertEquals(KdIntent.Back, IntentParser.parse("কেডি, আগের পেজে ফিরে যাও"))
+        assertEquals(KdIntent.Scroll(true), IntentParser.parse("নিচে স্ক্রল করো"))
+        assertEquals(KdIntent.Click("সার্চ"), IntentParser.parse("সার্চ চাপো"))
+        assertEquals(KdIntent.AddressBar("google.com"), IntentParser.parse("অ্যাড্রেস বারে google.com লেখো"))
+    }
+
+    @Test fun callAndReminderIntents() {
+        assertEquals(KdIntent.Call("মা"), IntentParser.parse("কেডি, আমার মাকে ফোন দাও"))
+        assertTrue(IntentParser.parse("আগামীকাল সকাল আটটায় আমাকে মনে করিয়ে দিও") is KdIntent.SetReminder)
+    }
+
+    @Test fun answers() {
+        assertEquals(KdIntent.Confirm(true), IntentParser.parse("হ্যাঁ"))
+        assertEquals(KdIntent.Confirm(false), IntentParser.parse("না"))
+        assertEquals(KdIntent.Choose(2), IntentParser.parse("দুই"))
+        assertEquals(KdIntent.Choose(1), IntentParser.parse("১"))
+    }
+
+    @Test fun messagesAreNotFaked() {
+        assertTrue(IntentParser.parse("মেসেজ পাঠাও") is KdIntent.Unsupported)
     }
 
     @Test fun gibberishIsUnknown() {
@@ -66,5 +97,33 @@ class IntentParserTest {
         assertEquals("রাত ৯টা ৩০ মিনিট", BanglaFormat.time(LocalTime.of(21, 30)))
         assertEquals("সকাল ৮টা", BanglaFormat.time(LocalTime.of(8, 0)))
         assertEquals("শনিবার, ২৪ অক্টোবর ২০২৬", BanglaFormat.date(LocalDate.of(2026, 10, 24)))
+    }
+
+    private val now = LocalDateTime.of(2026, 10, 25, 10, 0)
+
+    @Test fun reminderTomorrowMorning() {
+        val r = ReminderParser.parse("আগামীকাল সকাল আটটায় আমাকে মনে করিয়ে দিও", now)
+        assertEquals(
+            ReminderParser.Result.Ok(LocalDateTime.of(2026, 10, 26, 8, 0), "রিমাইন্ডার"), r
+        )
+    }
+
+    @Test fun reminderTonightWithMessage() {
+        val r = ReminderParser.parse("কেডি, আজ রাত ৯টায় ওষুধ খেতে মনে করিয়ে দিও", now)
+        assertEquals(
+            ReminderParser.Result.Ok(LocalDateTime.of(2026, 10, 25, 21, 0), "ওষুধ খেতে"), r
+        )
+    }
+
+    @Test fun reminderRelative() {
+        val r = ReminderParser.parse("১০ মিনিট পরে মনে করিয়ে দিও", now)
+        assertEquals(
+            ReminderParser.Result.Ok(LocalDateTime.of(2026, 10, 25, 10, 10), "রিমাইন্ডার"), r
+        )
+    }
+
+    @Test fun reminderNeedsTimeOrIsPast() {
+        assertEquals(ReminderParser.Result.NeedTime, ReminderParser.parse("মনে করিয়ে দিও", now))
+        assertEquals(ReminderParser.Result.Past, ReminderParser.parse("আজ সকাল ৮টায় মনে করিয়ে দিও", now))
     }
 }

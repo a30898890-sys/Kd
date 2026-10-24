@@ -11,6 +11,18 @@ sealed class KdIntent {
     object GoHome : KdIntent()
     object Sleep : KdIntent()
     object Greeting : KdIntent()
+    object Back : KdIntent()
+    data class Torch(val on: Boolean) : KdIntent()
+    data class Volume(val dir: Int) : KdIntent()
+    data class Media(val action: String) : KdIntent()
+    data class Scroll(val down: Boolean) : KdIntent()
+    data class Click(val target: String) : KdIntent()
+    data class TypeText(val text: String) : KdIntent()
+    data class AddressBar(val text: String) : KdIntent()
+    data class Call(val name: String) : KdIntent()
+    data class SetReminder(val raw: String) : KdIntent()
+    data class Choose(val n: Int) : KdIntent()
+    data class Confirm(val yes: Boolean) : KdIntent()
     data class Unsupported(val feature: String, val reason: String) : KdIntent()
     data class Clarify(val question: String) : KdIntent()
     data class Unknown(val heard: String) : KdIntent()
@@ -18,7 +30,8 @@ sealed class KdIntent {
 
 /** Rule-based Bangla / Bangla-English intent extraction. Pure Kotlin, unit-testable. */
 object IntentParser {
-    private fun set(vararg w: String): Set<String> = w.map { TextNormalizer.nfc(it) }.toSet()
+    private fun nfc(s: String) = TextNormalizer.nfc(s)
+    private fun set(vararg w: String): Set<String> = w.map { nfc(it) }.toSet()
 
     private val openVerbs = set(
         "খোলো", "খুলো", "খোল", "খুলুন", "চালু", "ওপেন", "open",
@@ -35,30 +48,37 @@ object IntentParser {
         "গুগলে", "গুগল", "ক্রোমে", "ক্রোম", "google", "chrome",
         "সম্পর্কে", "সম্বন্ধে", "বিষয়ে", "ব্রাউজারে"
     )
+    private val stopWords = set("অফ", "off", "স্টপ", "stop", "থামো")
+    private val stopOnly = set(
+        "অফ", "off", "স্টপ", "stop", "থামো", "ঘুমাও", "হও", "করো", "কর", "হয়ে", "যাও", "এখন"
+    )
+    private val yesWords = set("হ্যাঁ", "হ্যা", "হাঁ", "জি", "ঠিক", "আছে", "ওকে", "ok", "okay", "yes", "yeah")
+    private val noWords = set("না", "নাহ", "থাক", "বাদ", "no", "cancel", "বাতিল")
+    private val ordinals: Map<String, Int> = mapOf(
+        "1" to 1, "এক" to 1, "একটা" to 1, "প্রথম" to 1, "প্রথমটা" to 1,
+        "2" to 2, "দুই" to 2, "দুইটা" to 2, "দুটো" to 2, "দ্বিতীয়" to 2, "দ্বিতীয়টা" to 2,
+        "3" to 3, "তিন" to 3, "তিনটা" to 3, "তৃতীয়" to 3, "তৃতীয়টা" to 3
+    ).mapKeys { nfc(it.key) }
+
+    private val mediaWords = set("গান", "মিউজিক", "ভিডিও", "মিডিয়া")
+    private val pauseWords = set("থামাও", "থামান", "পজ", "পোজ", "pause")
+    private val playWords = set("চালাও", "চালু", "প্লে", "play", "চালান", "শুরু")
+    private val typeWords = set("লেখো", "লিখো", "লিখুন", "টাইপ", "type")
+    private val clickWords = set("চাপো", "চাপ", "চাপুন", "ক্লিক", "ট্যাপ", "টিপো", "টিপুন", "click", "tap")
+    private val clickStop = clickWords + fillers + set("বাটনে", "বাটন")
+    private val scrollDown = set("নিচে", "নিচের", "ডাউন", "down")
+    private val scrollUp = set("উপরে", "উপরের", "আপ", "up")
+    private val offWords = set("বন্ধ", "অফ", "off", "নেভাও", "নিভাও")
+    private val volUp = set("বাড়াও", "বাড়ান", "বেশি", "আপ")
+    private val volDown = set("কমাও", "কমান", "কম", "ডাউন")
+    private val volMute = set("মিউট", "mute", "নীরব", "বন্ধ")
+    private val callExact = set("কল", "ডায়াল")
     private val backWords = set("ফিরে", "পেছনে", "পিছনে", "আগের", "ব্যাক")
-    private val typeWords = set("লেখো", "লিখো", "লিখুন", "টাইপ")
     private val timeWords = set("সময়", "কয়টা", "কয়টায়", "কটা", "টাইম", "time")
     private val dateWords = set("তারিখ", "date")
-
-    private class Unsupp(
-        val feature: String,
-        val reason: String,
-        val exact: Set<String>,
-        val prefixes: List<String>
-    )
-
-    private val unsupported = listOf(
-        Unsupp("ফোন কল", "কন্টাক্ট ও কল সুবিধা পঞ্চম ধাপে আসবে, এখনো যোগ হয়নি।",
-            set("কল", "ডায়াল"), listOf("ফোন").map { TextNormalizer.nfc(it) }),
-        Unsupp("রিমাইন্ডার", "রিমাইন্ডার সুবিধা পঞ্চম ধাপে আসবে, এখনো যোগ হয়নি।",
-            emptySet(), listOf("মনে", "রিমাইন্ড", "অ্যালার্ম").map { TextNormalizer.nfc(it) }),
-        Unsupp("ফ্ল্যাশলাইট", "ফ্ল্যাশলাইট এখনো যোগ হয়নি।",
-            emptySet(), listOf("ফ্ল্যাশ", "ফ্লাশ", "টর্চ").map { TextNormalizer.nfc(it) }),
-        Unsupp("ভলিউম", "ভলিউম নিয়ন্ত্রণ এখনো যোগ হয়নি।",
-            set("আওয়াজ"), listOf("ভলিউম").map { TextNormalizer.nfc(it) }),
-        Unsupp("মিডিয়া নিয়ন্ত্রণ", "মিডিয়া নিয়ন্ত্রণ এখনো যোগ হয়নি।",
-            set("পজ", "থামাও", "গান", "মিউজিক"), emptyList())
-    )
+    private val reminderPrefixes = listOf("মনে", "রিমাইন্ড", "অ্যালার্ম").map { nfc(it) }
+    private val messagePrefixes = listOf("মেসেজ", "ম্যাসেজ", "এসএমএস", "sms").map { nfc(it) }
+    private val kePostfix = nfc("কে")
 
     private val urlRegex = Regex(
         "(?:https?://)?(?:[a-z0-9-]+\\.)+(?:com|net|org|bd|gov|edu|io|info|co|me|app|ai|xyz|tv|news|dev)(?![a-z0-9-])(?:/\\S*)?"
@@ -66,6 +86,13 @@ object IntentParser {
 
     fun searchUrl(query: String): String =
         "https://www.google.com/search?q=" + URLEncoder.encode(query, "UTF-8")
+
+    /** Returns an https URL if the text contains something that looks like a domain. */
+    fun asUrl(text: String): String? {
+        val m = urlRegex.find(TextNormalizer.normalize(text)) ?: return null
+        val u = m.value
+        return if (u.startsWith("http")) u else "https://$u"
+    }
 
     fun parse(raw: String): KdIntent {
         val normalized = TextNormalizer.normalize(raw)
@@ -75,34 +102,92 @@ object IntentParser {
 
         val toks = TextNormalizer.tokens(norm)
         val tokSet = toks.toSet()
+        val short = toks.size <= 2
 
-        if ("ঘুমাও" in tokSet || ("শোনা" in tokSet && "বন্ধ" in tokSet)) return KdIntent.Sleep
+        // Stop listening
+        if (short && toks.any { it in stopWords } && toks.all { it in stopOnly }) return KdIntent.Sleep
+        if (nfc("ঘুমাও") in tokSet || (nfc("শোনা") in tokSet && nfc("বন্ধ") in tokSet)) return KdIntent.Sleep
 
-        if (toks.any { it in typeWords } && toks.any { it.startsWith("বার") || it.startsWith("অ্যাড্রেস") }) {
-            return KdIntent.Unsupported(
-                "ঠিকানা বারে লেখা",
-                "ঠিকানা বারে লেখার জন্য অ্যাক্সেসিবিলিটি সার্ভিস লাগবে, যা তৃতীয় ধাপে আসবে।"
-            )
+        // Answers to questions KD asked
+        if (short && toks.all { it in yesWords }) return KdIntent.Confirm(true)
+        if (short && toks.all { it in noWords }) return KdIntent.Confirm(false)
+        if (short) {
+            val n = toks.firstNotNullOfOrNull { ordinals[it] }
+            if (n != null && toks.all { it in ordinals }) return KdIntent.Choose(n)
         }
 
+        // Media (before "আগের" is treated as "back")
+        val mediaCtx = toks.any { it in mediaWords }
+        if (mediaCtx && nfc("পরের") in tokSet) return KdIntent.Media("next")
+        if (mediaCtx && nfc("আগের") in tokSet) return KdIntent.Media("prev")
+        if (toks.any { it in pauseWords } && (mediaCtx || short)) return KdIntent.Media("pause")
+        if (mediaCtx && toks.any { it in playWords }) return KdIntent.Media("play")
+
+        // Typing
+        if (toks.any { it in typeWords }) {
+            val isAddr = toks.any {
+                it.startsWith("বার") || it.startsWith("অ্যাড্রেস") || it.startsWith("ঠিকানা")
+            }
+            val text = toks.filter { t ->
+                t !in typeWords && t !in fillers &&
+                    !(isAddr && (t.startsWith("বার") || t.startsWith("অ্যাড্রেস") || t.startsWith("ঠিকানা") ||
+                        t == nfc("ক্রোমের") || t == nfc("ক্রোমে")))
+            }.joinToString(" ")
+            if (text.isBlank()) return KdIntent.Clarify("কী লিখব?")
+            return if (isAddr) KdIntent.AddressBar(text) else KdIntent.TypeText(text)
+        }
+
+        // Tap
+        if (toks.any { it in clickWords }) {
+            val target = toks.filter { it !in clickStop }.joinToString(" ")
+            return if (target.isBlank()) KdIntent.Clarify("কোথায় চাপব?") else KdIntent.Click(target)
+        }
+
+        // Search
         if (toks.any { it in searchVerbs }) {
             val q = toks.filter { it !in searchStop }.joinToString(" ")
             return if (q.isBlank()) KdIntent.Clarify("কী সার্চ করব?") else KdIntent.Search(q)
         }
 
-        if (toks.any { it in backWords }) {
-            return KdIntent.Unsupported(
-                "পেছনে যাওয়া",
-                "অন্য অ্যাপে পেছনে যাওয়ার জন্য অ্যাক্সেসিবিলিটি সার্ভিস লাগবে, যা তৃতীয় ধাপে আসবে।"
-            )
+        // Scroll
+        if (nfc("স্ক্রল") in tokSet) {
+            return KdIntent.Scroll(!(toks.any { it in scrollUp } && toks.none { it in scrollDown }))
         }
 
-        if (toks.any { it.startsWith("হোম") }) return KdIntent.GoHome
+        if (toks.any { it in backWords }) return KdIntent.Back
+        if (toks.any { it.startsWith(nfc("হোম")) }) return KdIntent.GoHome
 
-        for (u in unsupported) {
-            if (toks.any { t -> t in u.exact || u.prefixes.any { p -> t.startsWith(p) } }) {
-                return KdIntent.Unsupported(u.feature, u.reason)
+        // Flashlight
+        if (toks.any { it.startsWith("ফ্ল্যাশ") || it.startsWith("ফ্লাশ") || it.startsWith("টর্চ") }) {
+            return KdIntent.Torch(toks.none { it in offWords })
+        }
+
+        // Volume
+        if (toks.any { it.startsWith(nfc("ভলিউম")) || it.startsWith(nfc("আওয়াজ")) || it.startsWith(nfc("সাউন্ড")) }) {
+            return when {
+                toks.any { it in volMute } -> KdIntent.Volume(0)
+                toks.any { it in volUp } -> KdIntent.Volume(1)
+                toks.any { it in volDown } -> KdIntent.Volume(-1)
+                else -> KdIntent.Clarify("ভলিউম বাড়াব না কমাব?")
             }
+        }
+
+        // Phone call
+        if (toks.any { it.startsWith(nfc("ফোন")) || it in callExact }) {
+            val name = toks.filter { !it.startsWith(nfc("ফোন")) && it !in callExact && it !in fillers }
+                .map { if (it.length > 2 && it.endsWith(kePostfix)) it.removeSuffix(kePostfix) else it }
+                .joinToString(" ")
+            return if (name.isBlank()) KdIntent.Clarify("কাকে ফোন করব?") else KdIntent.Call(name)
+        }
+
+        // Reminder
+        if (toks.any { t -> reminderPrefixes.any { t.startsWith(it) } }) return KdIntent.SetReminder(raw)
+
+        if (toks.any { t -> messagePrefixes.any { t.startsWith(it) } }) {
+            return KdIntent.Unsupported(
+                "মেসেজ পাঠানো",
+                "মেসেজ পাঠানো এখনো যোগ হয়নি, কারণ এটা গুরুত্বপূর্ণ কাজ এবং আলাদা সুরক্ষা লাগবে।"
+            )
         }
 
         if (toks.any { it in timeWords }) return KdIntent.TellTime

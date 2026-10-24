@@ -3,6 +3,9 @@ package app.kd.assistant
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
@@ -14,11 +17,14 @@ import android.speech.tts.TextToSpeech
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.util.Locale
@@ -27,6 +33,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var status: TextView
     private lateinit var micButton: Button
+    private lateinit var contButton: Button
+    private lateinit var a11yButton: Button
+    private lateinit var wakeCheck: CheckBox
     private lateinit var input: EditText
     private lateinit var log: TextView
     private lateinit var scroll: ScrollView
@@ -37,6 +46,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
     private val handler = Handler(Looper.getMainLooper())
+    private var overlayAsked = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,6 +83,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             textSize = 20f
             setOnClickListener { toggleListening() }
         }
+        contButton = Button(this).apply {
+            textSize = 16f
+            setOnClickListener { onContClick() }
+        }
+        wakeCheck = CheckBox(this).apply {
+            text = "শুধু \"কেডি\" বললে কাজ করবে (প্রস্তাবিত)"
+            isChecked = true
+        }
+        a11yButton = Button(this).apply {
+            textSize = 14f
+            setOnClickListener { openA11ySettings() }
+        }
         input = EditText(this).apply {
             hint = "অথবা লিখে পরীক্ষা করুন"
             setSingleLine(true)
@@ -99,6 +121,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(status)
         root.addView(micButton, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, dp(72)))
+        root.addView(contButton, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(60)))
+        root.addView(wakeCheck)
+        root.addView(a11yButton, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(52)))
         root.addView(row)
         root.addView(scroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -106,6 +133,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun appendLog(s: String) {
+        if (log.length > 20000) log.text = log.text.takeLast(10000)
         log.append(s + "\n\n")
         scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
     }
@@ -142,6 +170,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun startListening() {
+        if (ListenService.running) {
+            appendLog("ℹ️ সবসময় শোনা চালু আছে। আগে সেটা বন্ধ করুন।")
+            return
+        }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             appendLog("⚠️ এই ফোনে স্পিচ রিকগনিশন সার্ভিস পাওয়া যায়নি। Google অ্যাপ ইনস্টল/আপডেট করুন, অথবা লিখে পরীক্ষা করুন।")
             return
@@ -186,6 +218,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 2) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED
+            ) {
+                beginContinuous()
+            } else {
+                appendLog("সারাক্ষণ শোনার জন্য মাইক্রোফোনের অনুমতি প্রয়োজন।")
+            }
+            return
+        }
         if (requestCode == 1) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 startListening()
@@ -235,6 +277,117 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    // ---- Always-on mode ------------------------------------------------------
+
+    private fun toggleContinuous() {
+        if (ListenService.running) {
+            startService(Intent(this, ListenService::class.java).setAction(ListenService.ACTION_STOP))
+            return
+        }
+        if (listening) stopListening()
+        val need = mutableListOf(
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.CALL_PHONE
+        )
+        if (Build.VERSION.SDK_INT >= 33) need.add(Manifest.permission.POST_NOTIFICATIONS)
+        val missing = need.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), 2)
+            return
+        }
+        beginContinuous()
+    }
+
+    private fun beginContinuous() {
+        if (!Settings.canDrawOverlays(this) && !overlayAsked) {
+            overlayAsked = true
+            appendLog(
+                "ℹ️ ব্যাকগ্রাউন্ডে থাকা অবস্থায় অ্যাপ খুলতে \"অন্য অ্যাপের উপরে দেখানো\" অনুমতি লাগে। " +
+                    "সেটিংস খুলছি। অনুমতি দিয়ে ফিরে এসে আবার বাটন চাপুন।"
+            )
+            startActivity(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+            )
+            return
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            appendLog("⚠️ ওই অনুমতি ছাড়া KD ব্যাকগ্রাউন্ডে অ্যাপ খুলতে নাও পারে।")
+        }
+        val i = Intent(this, ListenService::class.java)
+            .setAction(ListenService.ACTION_START)
+            .putExtra("wake", wakeCheck.isChecked)
+        ContextCompat.startForegroundService(this, i)
+    }
+
+    private fun onContClick() {
+        if (ListenService.running) toggleContinuous() else authenticateThen { toggleContinuous() }
+    }
+
+    /** Owner check: fingerprint or the phone's own PIN/pattern. This is not voice verification. */
+    private fun authenticateThen(onOk: () -> Unit) {
+        val allowed = if (Build.VERSION.SDK_INT >= 30)
+            BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        else BiometricManager.Authenticators.BIOMETRIC_WEAK
+        if (BiometricManager.from(this).canAuthenticate(allowed) != BiometricManager.BIOMETRIC_SUCCESS) {
+            appendLog("⚠️ মালিক যাচাইয়ের জন্য ফোনে স্ক্রিন লক (পিন/প্যাটার্ন) বা আঙুলের ছাপ সেট করা থাকতে হবে। সেট করে আবার চেষ্টা করুন।")
+            return
+        }
+        val prompt = BiometricPrompt(
+            this, ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    onOk()
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    appendLog("⚠️ যাচাই হয়নি: $errString")
+                }
+            }
+        )
+        prompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle("KD সারাক্ষণ শোনা চালু করতে যাচাই করুন")
+                .setAllowedAuthenticators(allowed)
+                .build()
+        )
+    }
+
+    private fun openA11ySettings() {
+        appendLog(
+            "♿ অ্যাক্সেসিবিলিটি সার্ভিস KD-কে স্ক্রিনের লেখা পড়তে এবং আপনার কমান্ডে চাপ দিতে, লিখতে ও স্ক্রল করতে দেয়। " +
+                "KD এই তথ্য সংরক্ষণ বা ইন্টারনেটে পাঠায় না। সেটিংসে \"KD\" বেছে চালু করুন; যেকোনো সময় বন্ধ করতে পারবেন।\n" +
+                "যদি \"সীমাবদ্ধ সেটিং\" (Restricted setting) লেখা আসে: ফোনের Settings > Apps > KD > ⋮ (তিন দাগ) > " +
+                "\"Allow restricted settings\" চালু করে আবার চেষ্টা করুন।"
+        )
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshContUi()
+    }
+
+    private fun refreshContUi() {
+        val on = ListenService.running
+        contButton.text = if (on) "🔴 সবসময় শোনা বন্ধ করুন" else "🟢 সবসময় শোনা চালু করুন"
+        micButton.isEnabled = !on
+        a11yButton.text = if (KdAccessibilityService.instance != null)
+            "♿ অ্যাক্সেসিবিলিটি: চালু ✓ (সেটিংস)" else "♿ অ্যাক্সেসিবিলিটি চালু করুন (আঙুলের কাজের জন্য)"
+        if (on) status.text = "🔴 সবসময় শোনা চালু (বন্ধ করতে \"অফ\" বলুন)"
+        else if (!listening) status.text = "মাইক বন্ধ"
+    }
+
+    override fun onStart() {
+        super.onStart()
+        KdBus.logListener = { appendLog(it) }
+        KdBus.stateListener = { refreshContUi() }
+        KdBus.flush()
+        refreshContUi()
+    }
+
     // ---- Command handling ------------------------------------------------------
 
     private fun submitText() {
@@ -255,6 +408,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onStop() {
         super.onStop()
+        KdBus.logListener = null
+        KdBus.stateListener = null
         if (listening) stopListening()
     }
 

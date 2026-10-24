@@ -9,7 +9,7 @@ object TextNormalizer {
     private val punctuation = Regex("[।,?!;:\"'“”‘’()\\[\\]]+")
     private val whitespace = Regex("\\s+")
     private val wakePattern = Regex(
-        "^(?:(?:হেই|হে|হেয়|hey|hi)\\s+)?(?:কেডি|কেডী|কে ডি|ক্যাডি|kd|k d)(?:\\s+|$)"
+        "^(?:(?:হেই|হে|hey|hi)\\s+)?(?:কেডি|কেডী|কে ডি|ক্যাডি|kd|k d)(?:\\s+|$)"
     )
 
     fun nfc(s: String): String = Normalizer.normalize(s, Normalizer.Form.NFC)
