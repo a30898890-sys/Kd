@@ -9,8 +9,10 @@ object TextNormalizer {
     private val punctuation = Regex("[।,?!;:\"'“”‘’()\\[\\]]+")
     private val whitespace = Regex("\\s+")
     private val wakePattern = Regex(
-        "^(?:(?:হেই|হে|hey|hi)\\s+)?(?:কেডি|কেডী|কে ডি|ক্যাডি|kd|k d)(?:\\s+|$)"
+        "^(?:(?:হেই|হে|hey|hi|ok|okay|ওকে)\\s+)?" +
+            "(?:কেডি|কেডী|কে ডি|কেটি|ক্যাডি|kd|k d|k\\.d|katie|kady)(?:\\s+|$)"
     )
+    private val ampm = Regex("(\\d)\\s*(am|pm)\\b")
 
     fun nfc(s: String): String = Normalizer.normalize(s, Normalizer.Form.NFC)
 
@@ -28,6 +30,7 @@ object TextNormalizer {
             .map { it.trim('.') }
             .filter { it.isNotEmpty() }
             .joinToString(" ")
+            .replace(ampm, "$1 $2")
     }
 
     fun stripWakeWord(normalized: String): String = normalized.replace(wakePattern, "").trim()

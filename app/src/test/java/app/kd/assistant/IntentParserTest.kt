@@ -126,4 +126,34 @@ class IntentParserTest {
         assertEquals(ReminderParser.Result.NeedTime, ReminderParser.parse("মনে করিয়ে দিও", now))
         assertEquals(ReminderParser.Result.Past, ReminderParser.parse("আজ সকাল ৮টায় মনে করিয়ে দিও", now))
     }
+
+    @Test fun englishCommands() {
+        assertEquals(KdIntent.OpenApp("chrome"), IntentParser.parse("open chrome"))
+        assertEquals(KdIntent.OpenApp("chrome"), IntentParser.parse("hey kd open chrome"))
+        assertEquals(KdIntent.Search("bangladesh news"), IntentParser.parse("search for bangladesh news"))
+        assertEquals(KdIntent.Torch(true), IntentParser.parse("flashlight on"))
+        assertEquals(KdIntent.Torch(false), IntentParser.parse("turn off the flashlight"))
+        assertEquals(KdIntent.Volume(1), IntentParser.parse("volume up"))
+        assertEquals(KdIntent.Back, IntentParser.parse("go back"))
+        assertEquals(KdIntent.Scroll(true), IntentParser.parse("scroll down"))
+        assertEquals(KdIntent.TellTime, IntentParser.parse("what time is it"))
+        assertEquals(KdIntent.Call("mom"), IntentParser.parse("call mom"))
+        assertEquals(KdIntent.Click("search"), IntentParser.parse("tap search"))
+        assertEquals(KdIntent.Sleep, IntentParser.parse("stop listening"))
+        assertEquals(KdIntent.Media("play"), IntentParser.parse("play music"))
+        assertEquals(KdIntent.Media("next"), IntentParser.parse("next song"))
+        assertEquals(KdIntent.Confirm(true), IntentParser.parse("yes"))
+        assertEquals(KdIntent.AddressBar("google.com"), IntentParser.parse("type google.com in address bar"))
+    }
+
+    @Test fun englishReminder() {
+        val r = ReminderParser.parse("remind me tomorrow at 8 am to take medicine", now)
+        assertEquals(
+            ReminderParser.Result.Ok(LocalDateTime.of(2026, 10, 26, 8, 0), "take medicine"), r
+        )
+        val r2 = ReminderParser.parse("remind me in 10 minutes", now)
+        assertEquals(
+            ReminderParser.Result.Ok(LocalDateTime.of(2026, 10, 25, 10, 10), "রিমাইন্ডার"), r2
+        )
+    }
 }

@@ -130,6 +130,7 @@ class ListenService : Service(), TextToSpeech.OnInitListener {
                 break
             }
         }
+        t.setSpeechRate(Prefs.rate(this))
         t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) {
@@ -154,6 +155,7 @@ class ListenService : Service(), TextToSpeech.OnInitListener {
         handler.removeCallbacks(listenRunnable)
         handler.removeCallbacks(resumeRunnable)
         handler.postDelayed(resumeRunnable, 12000)
+        tts?.setSpeechRate(Prefs.rate(this))
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "kd")
     }
 
@@ -190,14 +192,7 @@ class ListenService : Service(), TextToSpeech.OnInitListener {
         recognizer = SpeechRecognizer.createSpeechRecognizer(this).also {
             it.setRecognitionListener(listener)
         }
-        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "bn-BD")
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "bn-BD")
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
-        }
-        recognizer?.startListening(i)
+        recognizer?.startListening(Prefs.speechIntent(this, false))
     }
 
     private val listener = object : RecognitionListener {
@@ -249,7 +244,7 @@ class ListenService : Service(), TextToSpeech.OnInitListener {
 
     private fun processResults(list: List<String>) {
         val now = SystemClock.elapsedRealtime()
-        val open = !wakeRequired || now < acceptUntil
+        val open = !Prefs.wake(this) || now < acceptUntil
         var heard: String? = null
         var intent: KdIntent? = null
         for (c in list) {

@@ -21,27 +21,29 @@ object ReminderParser {
 
     private val suffixes = listOf("টায়", "টার", "টা").map { nfc(it) }
     private val bareSuffixes = set("টায়", "টা", "টার")
-    private val afterWords = set("পরে", "পর")
-    private val minuteUnits = set("মিনিট", "মিনিটে")
-    private val hourUnits = set("ঘণ্টা", "ঘন্টা", "ঘণ্টায়")
+    private val afterWords = set("পরে", "পর", "in", "later")
+    private val minuteUnits = set("মিনিট", "মিনিটে", "minutes", "minute", "min", "mins")
+    private val hourUnits = set("ঘণ্টা", "ঘন্টা", "ঘণ্টায়", "hours", "hour", "hr", "hrs")
     private val halfWords = set("আধ", "আধা")
-    private val todayWords = set("আজ", "আজকে", "আজকের")
-    private val tomorrowWords = set("কাল", "কালকে", "আগামীকাল", "আগামিকাল")
+    private val todayWords = set("আজ", "আজকে", "আজকের", "today")
+    private val tomorrowWords = set("কাল", "কালকে", "আগামীকাল", "আগামিকাল", "tomorrow")
     private val dayAfterWords = set("পরশু", "পরশুদিন")
-    private val morningWords = set("ভোর", "ভোরে", "সকাল", "সকালে")
-    private val noonWords = set("দুপুর", "দুপুরে")
-    private val afternoonWords = set("বিকাল", "বিকালে", "বিকেল", "বিকেলে")
-    private val eveningWords = set("সন্ধ্যা", "সন্ধ্যায়", "সন্ধ্যে")
-    private val nightWords = set("রাত", "রাতে")
+    private val morningWords = set("ভোর", "ভোরে", "সকাল", "সকালে", "morning")
+    private val noonWords = set("দুপুর", "দুপুরে", "noon")
+    private val afternoonWords = set("বিকাল", "বিকালে", "বিকেল", "বিকেলে", "afternoon")
+    private val eveningWords = set("সন্ধ্যা", "সন্ধ্যায়", "সন্ধ্যে", "evening")
+    private val nightWords = set("রাত", "রাতে", "night")
     private val sade = nfc("সাড়ে")
     private val soya = nfc("সোয়া")
     private val poune = nfc("পৌনে")
 
     private val stopExact = set(
         "দাও", "দিন", "করো", "কর", "করুন", "আমাকে", "আমায়", "আমারে", "আমার",
-        "একটা", "একটু", "সেট", "প্লিজ", "please", "এ", "পরে", "পর"
+        "একটা", "একটু", "সেট", "প্লিজ", "please", "এ", "পরে", "পর",
+        "remind", "me", "to", "at", "on", "in", "the", "a", "an", "set", "reminder", "alarm",
+        "for", "am", "pm", "o", "clock", "later", "my"
     )
-    private val stopPrefix = listOf("মনে", "করিয়ে", "রিমাইন্ড", "অ্যালার্ম", "দিও", "দিয়ো").map { nfc(it) }
+    private val stopPrefix = listOf("মনে", "করিয়ে", "রিমাইন্ড", "অ্যালার্ম", "দিও", "দিয়ো", "remind", "alarm").map { nfc(it) }
 
     private fun stripSuffix(t: String): String {
         for (s in suffixes) if (t.length > s.length && t.endsWith(s)) return t.removeSuffix(s)
@@ -98,6 +100,7 @@ object ReminderParser {
         for (i in toks.indices) {
             val t = toks[i]
             when {
+                t == "tonight" -> { dayOffset = 0; period = "night"; used[i] = true }
                 t in todayWords -> { dayOffset = 0; used[i] = true }
                 t in tomorrowWords -> { dayOffset = 1; used[i] = true }
                 t in dayAfterWords -> { dayOffset = 2; used[i] = true }
@@ -133,7 +136,7 @@ object ReminderParser {
                 used[i] = true
                 used[i + 1] = true
                 if (nn != null && nn in bareSuffixes) used[i + 2] = true
-            } else if (numberOf(t) != null && (hasSuffix(t) || (next != null && next in bareSuffixes))) {
+            } else if (numberOf(t) != null && (hasSuffix(t) || (next != null && next in bareSuffixes) || (i > 0 && toks[i - 1] == "at"))) {
                 hour = numberOf(t)
                 used[i] = true
                 var after = i + 1
@@ -153,6 +156,11 @@ object ReminderParser {
         }
         val h = hour ?: return Result.NeedTime
         if (h < 0 || h > 24) return Result.NeedTime
+        val ampmIdx = toks.indexOfFirst { it == "am" || it == "pm" }
+        if (ampmIdx >= 0) {
+            used[ampmIdx] = true
+            if (period == null) period = if (toks[ampmIdx] == "am") "morning" else "afternoon"
+        }
 
         val candidates: List<Int> = when {
             h == 0 -> listOf(0)
